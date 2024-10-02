@@ -12,7 +12,6 @@ As part of my Triton challenge, after practicing the language for about 2 weeks,
    - GELU Activation
 2. Modular architecture following the transformer design
 3. Training and text generation capabilities
-4. Visualization of training progress
 
 ## Implementation Details
 
