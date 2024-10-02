@@ -10,7 +10,7 @@ As part of my Triton challenge, after practicing the language for about 2 weeks,
    - Softmax
    - Layer Normalization
    - GELU Activation
-2. Modular architecture following the transformer design
+2. Modular architecture following a standard transformer
 3. Text generation
 
 ### Training
