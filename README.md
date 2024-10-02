@@ -54,7 +54,7 @@ The training loop includes:
    ```python
    python triton_train_nanoGPT.py
    ```
-
+This will train for 50 epochs, save checkpoint as `nanoGPT_cpkt.pth` and sample from it.
 ## License
 
 MIT
