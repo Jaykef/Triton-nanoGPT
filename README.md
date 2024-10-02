@@ -6,7 +6,7 @@ As part of my Triton challenge, after practicing the language for about 2 weeks,
 
 ### Key Features
 
-1. Triton-accelerated kernels for key operations:
+1. Triton-accelerated kernels for key ml ops:
    - Softmax
    - Layer Normalization
    - GELU Activation
