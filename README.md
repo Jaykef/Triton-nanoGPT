@@ -18,20 +18,15 @@ As part of my Triton challenge, after practicing the language for about 2 weeks,
 
 ### Model Architecture
 
-The model follows the standard transformer architecture, including:
-
-- Token and positional embeddings
-- Multi-head attention mechanism
-- Feedforward neural networks
-- Layer normalization
+The model follows the standard transformer architecture Karpathy's nanoGPT with standard transformer architecture.
 
 ### Triton Kernels
 
 Custom Triton kernels have been implemented for:
 
-1. Softmax computation
+1. Softmax
 2. Layer normalization
-3. GELU activation function
+3. GELU activation 
 
 These kernels aim to optimize performance by leveraging GPU parallelism more effectively than standard PyTorch operations.
 
