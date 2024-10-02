@@ -46,7 +46,7 @@ The training loop includes:
 
 ## How to Use
 
-1. **Setup**: Requires GPU! Ensure you have PyTorch and Triton installed.
+1. **Setup**: Requires GPU! Ensure you have PyTorch and Triton installed. GPU Poor? I am too, I used a google colab.
 
 2. **Data Preparation**: The code uses the Tiny Shakespeare dataset by default. It will be downloaded automatically if not present.
 
