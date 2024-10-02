@@ -4,7 +4,7 @@ The WHY behind this ordeal
 
 After practicing triton for about 2 weeks, I attempted implementing custom Triton kernels for Karpathy's nanoGPT. This project serves as an eucational exploration of Triton's capabilities in accelerating transformer-based models.
 
-### Key Features
+## Key Features
 
 1. Triton-accelerated kernels for key ml ops:
    - Softmax
@@ -13,12 +13,12 @@ After practicing triton for about 2 weeks, I attempted implementing custom Trito
 2. Modular architecture following a standard transformer
 3. Text generation
 
-### Training
+## Training
 
 GPU-aware train loop with effective gradient accumulation, learning rate scheduling and gradient clipping with val loss tracking.
 
 
-### How to Use
+## How to Use
 
 1. **Setup**: Requires GPU! Ensure you have PyTorch and Triton installed. GPU Poor? I am too, I used a google colab.
 
