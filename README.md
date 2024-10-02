@@ -17,14 +17,11 @@ After practicing triton for about 2 weeks, I attempted implementing custom Trito
 
 GPU-aware train loop with effective gradient accumulation, learning rate scheduling and gradient clipping with val loss tracking.
 
+- **Setup**: Requires GPU! Ensure you have PyTorch and Triton installed. GPU Poor? I am too, I used a google colab.
 
-## How to Use
+- **Data Preparation**: Using Tiny Shakespeare dataset by default. It will be downloaded automatically if not present.
 
-1. **Setup**: Requires GPU! Ensure you have PyTorch and Triton installed. GPU Poor? I am too, I used a google colab.
-
-2. **Data Preparation**: Using Tiny Shakespeare dataset by default. It will be downloaded automatically if not present.
-
-3. **Training**: 
+- **Training**: 
    ```python
    python triton_train_nanoGPT.py
    ```
