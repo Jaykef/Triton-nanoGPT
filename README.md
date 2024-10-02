@@ -2,7 +2,7 @@
 
 The WHY behind this ordeal
 
-As part of my Triton challenge, after practicing the language for about 2 weeks, I attempted implementing custom Triton kernels for Karpathy's nanoGPT. This project serves as an eucational exploration of Triton's capabilities in accelerating transformer-based models.
+After practicing triton for about 2 weeks, I attempted implementing custom Triton kernels for Karpathy's nanoGPT. This project serves as an eucational exploration of Triton's capabilities in accelerating transformer-based models.
 
 ### Key Features
 
