@@ -17,7 +17,7 @@ After practicing triton for about 2 weeks, I attempted implementing custom Trito
 
 GPU-aware train loop with effective gradient accumulation, learning rate scheduling and gradient clipping with val loss tracking.
 
-- **Setup**: Requires GPU! Ensure you have PyTorch and Triton installed. GPU Poor? I am too, I used a google colab.
+- **Setup**: Requires GPU! Ensure you have PyTorch and Triton installed. GPU Poor? I am too, I used one free T4 on google colab.
 
 - **Data Preparation**: Using Tiny Shakespeare dataset by default. It will be downloaded automatically if not present.
 
