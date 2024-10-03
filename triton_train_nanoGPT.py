@@ -8,6 +8,15 @@ import triton.language as tl
 import math
 import time
 
+# ================================================================
+# The WHY behind this ordeal?
+# After practicing triton for about 2 weeks, I attempted 
+# implementing custom Triton kernels for Karpathy's nanoGPT. 
+# This project serves as an eucational exploration of Triton's 
+# capabilities in accelerating transformer-based models.
+# ================================================================
+
+
 # -----------------------------
 # Data Preprocessing
 # -----------------------------
@@ -246,7 +255,7 @@ class NanoGPT(nn.Module):
         self.num_heads = num_heads
         self.num_layers = num_layers
         self.seq_length = seq_length
-        
+
         self.token_embedding = nn.Embedding(vocab_size, dim)
         self.position_embedding = nn.Embedding(seq_length, dim)
         self.blocks = nn.ModuleList([
@@ -355,7 +364,7 @@ def train(model, train_data, val_data, batch_size, seq_length, learning_rate, nu
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), 'nanoGPT_cpkt.pth')
-            print(f"New best model saved with validation loss: {best_val_loss:.4f}")
+            print(f"Saved checkpoint for validation loss: {best_val_loss:.4f}")
 
         model.train()
 
@@ -399,7 +408,7 @@ if __name__ == "__main__":
     )
 
     # Load checkpoints
-    model.load_state_dict(torch.load('nanoGPT_cpkt.pth'))
+    model.load_state_dict(torch.load('nanoGPT_cpkt.pth', weights_only=True))
 
     # Generate sample text
     model.eval()
@@ -409,7 +418,13 @@ if __name__ == "__main__":
         for _ in range(240):
             logits = model(input_ids)
             next_token_logits = logits[:, -1, :]
-            next_token = torch.multinomial(F.softmax(next_token_logits, dim=-1), num_samples=1)
+            next_token_logits = torch.clamp(next_token_logits, -100, 100)
+            probs = F.softmax(next_token_logits, dim=-1) + 1e-8
+            probs = probs / probs.sum()
+            if torch.isnan(probs).any() or torch.isinf(probs).any():
+                probs = torch.ones_like(probs) / probs.shape[-1]
+            
+            next_token = torch.multinomial(probs, num_samples=1)
             input_ids = torch.cat([input_ids, next_token], dim=1)
 
     generated_text = decode(input_ids[0].cpu())
