@@ -2,7 +2,7 @@
 
 The WHY behind this ordeal
 
-After practicing triton for about 2 weeks, I attempted implementing custom Triton kernels for Karpathy's nanoGPT. This project serves as an eucational exploration of Triton's capabilities in accelerating transformer-based models. It's not perfect and would apprecieate contributions.
+After practicing triton for about 2 weeks now, I challenged myself into implementing custom triton kernels for Karpathy's nanoGPT and quite an ordeal it was but somehow got something working, not perfect but getting there:), contributions are welcomed.
 
 ## Kernels
 Supports lightweight custom triton kernels for softmax, layer normalization and GELU activation.
