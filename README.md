@@ -19,7 +19,7 @@ GPU-aware train loop with effective gradient accumulation, learning rate schedul
    ```python
    python triton_train_nanoGPT.py
    ```
-This will train for 50 epochs, save checkpoint as `nanoGPT_cpkt.pth` and sample from it.
+This will train for 100 epochs, save checkpoint as `nanoGPT_cpkt.pth` and sample from it.
 ## License
 
 MIT
