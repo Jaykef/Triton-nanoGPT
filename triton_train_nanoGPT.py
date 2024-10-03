@@ -363,7 +363,7 @@ def train(model, train_data, val_data, batch_size, seq_length, learning_rate, nu
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), 'nanoGPT_cpkt.pth')
+            torch.save(model.state_dict(), 'checkpoints/checkpoints/nanoGPT_cpkt.pth')
             print(f"Saved checkpoint for validation loss: {best_val_loss:.4f}")
 
         model.train()
@@ -381,10 +381,10 @@ if __name__ == "__main__":
     num_heads = 6
     num_layers = 6
     seq_length = 256
-    dropout = 0.0
+    dropout = 0.1
     batch_size = 64
     learning_rate = 3e-4
-    num_epochs = 50
+    num_epochs = 100
 
     # Init model
     model = NanoGPT(
@@ -408,7 +408,7 @@ if __name__ == "__main__":
     )
 
     # Load checkpoints
-    model.load_state_dict(torch.load('nanoGPT_cpkt.pth', weights_only=True))
+    model.load_state_dict(torch.load('checkpoints/nanoGPT_cpkt.pth', weights_only=True))
 
     # Generate sample text
     model.eval()
