@@ -15,12 +15,11 @@ import time
 # Still not perfect and would appreciate contributions:)
 # ================================================================
 
-
 # -----------------------------
 # Data Preprocessing
 # -----------------------------
 
-def download_dataset(url, filepath):
+def dataset(url, filepath):
     if not os.path.exists(filepath):
         print(f"Downloading dataset from {url}...")
         response = requests.get(url)
@@ -30,20 +29,17 @@ def download_dataset(url, filepath):
     else:
         print(f"Dataset already exists at {filepath}.")
 
-# Load Tiny Shakespeare dataset
 url = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
 filepath = "input.txt"
 
-download_dataset(url, filepath)
+dataset(url, filepath)
 with open('input.txt', 'r') as f:
     text = f.read()
 
-# Sorted list of unique characters
 chars = sorted(list(set(text)))
 vocab_size = len(chars)
 print(f"Vocabulary size: {vocab_size}")
 
-# Map characters to integers and vice versa
 stoi = { ch:i for i,ch in enumerate(chars) }
 itos = { i:ch for i,ch in enumerate(chars) }
 
@@ -55,7 +51,6 @@ def decode(indices):
 
 data = encode(text)
 
-# Split data (90% train, 10% test)
 n = int(0.9 * len(data))
 train_data = data[:n].cuda()
 test_data = data[n:].cuda()
@@ -113,6 +108,39 @@ def layer_norm_kernel(
     tl.store(y_ptr + row_idx * N + cols, y, mask=mask)
 
 @triton.jit
+def cross_entropy_loss_kernel(
+    logits_ptr, targets_ptr, loss_ptr, 
+    n_classes, n_elements,
+    BLOCK_SIZE: tl.constexpr
+):
+    pid = tl.program_id(0)
+    block_start = pid * BLOCK_SIZE
+    offsets = block_start + tl.arange(0, BLOCK_SIZE)
+    mask = offsets < n_elements
+
+    targets = tl.load(targets_ptr + offsets, mask=mask, other=-1)
+
+    row_max = tl.full([BLOCK_SIZE], float('-inf'), dtype=tl.float32)
+    row_sum = tl.zeros([BLOCK_SIZE], dtype=tl.float32)
+
+    for i in range(n_classes):
+        col_offset = offsets * n_classes + i
+        logit = tl.load(logits_ptr + col_offset, mask=mask, other=float('-inf'))
+        row_max = tl.maximum(row_max, logit)
+
+    loss = tl.zeros([BLOCK_SIZE], dtype=tl.float32)
+    for i in range(n_classes):
+        col_offset = offsets * n_classes + i
+        logit = tl.load(logits_ptr + col_offset, mask=mask, other=float('-inf'))
+        exp_logit = tl.exp(logit - row_max)
+        row_sum += exp_logit
+        loss = tl.where(targets == i, loss - logit + row_max, loss)
+
+    loss += tl.log(row_sum)
+
+    tl.store(loss_ptr + offsets, loss, mask=mask)
+
+@triton.jit
 def gelu_kernel(
     x_ptr, y_ptr, n_elements,
     BLOCK_SIZE: tl.constexpr
@@ -121,11 +149,6 @@ def gelu_kernel(
     mask = offsets < n_elements
 
     x = tl.load(x_ptr + offsets, mask=mask)
-
-    # GELU approximation: 0.5 * x * (1 + torch.erf(x / math.sqrt(2)))
-    # We'll use a further approximation of erf for simplicity
-    # erf(x) ≈ tanh(sqrt(2/pi) * (x + 0.044715 * x^3))
-    # and tanh(x) ≈ x / (1 + |x|)  (another approximation)
 
     sqrt_2_over_pi = 0.7978845608028654
     coeff = sqrt_2_over_pi * (1 + 0.044715 * x * x)
@@ -136,6 +159,59 @@ def gelu_kernel(
 # -----------------------------------
 # Triton-accelerated Launch Functions
 # -----------------------------------
+
+class TritonSoftmax(nn.Module):
+    def forward(self, x):
+        original_shape = x.shape
+        if len(original_shape) > 2:
+            x = x.view(-1, original_shape[-1])
+        x = x.clamp(-100, 100)
+        B, N = x.shape
+        y = torch.empty_like(x)
+        grid = lambda meta: (B,)
+        softmax_kernel[grid](
+            y, x,
+            x.stride(0), y.stride(0), N,
+            BLOCK_SIZE=triton.next_power_of_2(N)
+        )
+        y = y + 1e-8
+        y = y / y.sum(dim=-1, keepdim=True)
+        return y.view(original_shape)
+    
+def triton_cross_entropy_loss(logits, targets):
+    return TritonCrossEntropyLoss.apply(logits, targets)
+
+class TritonCrossEntropyLoss(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, logits, targets):
+        n_elements, n_classes = logits.shape
+        loss = torch.empty(n_elements, device=logits.device, dtype=logits.dtype)
+        
+        grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']),)
+        
+        cross_entropy_loss_kernel[grid](
+            logits, targets, loss,
+            n_classes, n_elements,
+            BLOCK_SIZE=1024
+        )
+        
+        ctx.save_for_backward(logits, targets)
+        return loss.mean()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        logits, targets = ctx.saved_tensors
+        batch_size, n_classes = logits.shape
+
+        logits_exp = torch.exp(logits - logits.max(dim=-1, keepdim=True).values)
+        softmax_output = logits_exp / logits_exp.sum(dim=-1, keepdim=True)
+
+        grad_input = softmax_output.clone()
+        grad_input.scatter_add_(1, targets.unsqueeze(1), -torch.ones_like(grad_input))
+        grad_input *= grad_output.view(-1, 1) / batch_size
+
+        return grad_input, None
+
 
 class TritonLayerNorm(nn.Module):
     def __init__(self, normalized_shape, eps=1e-5):
@@ -158,24 +234,6 @@ class TritonLayerNorm(nn.Module):
             BLOCK_SIZE=128
         )
         return y
-
-class TritonSoftmax(nn.Module):
-    def forward(self, x):
-        original_shape = x.shape
-        if len(original_shape) > 2:
-            x = x.view(-1, original_shape[-1])
-        x = x.clamp(-100, 100)
-        B, N = x.shape
-        y = torch.empty_like(x)
-        grid = lambda meta: (B,)
-        softmax_kernel[grid](
-            y, x,
-            x.stride(0), y.stride(0), N,
-            BLOCK_SIZE=triton.next_power_of_2(N)
-        )
-        y = y + 1e-8
-        y = y / y.sum(dim=-1, keepdim=True)
-        return y.view(original_shape)
 
 class TritonGELU(nn.Module):
     def forward(self, x):
@@ -288,6 +346,9 @@ class NanoGPT(nn.Module):
 
         return logits
 
+    def compute_loss(self, logits, targets):
+        return triton_cross_entropy_loss(logits.view(-1, logits.size(-1)), targets.view(-1))
+
 #----------------------------
 # Training
 #----------------------------
@@ -303,48 +364,76 @@ def train(model, train_data, val_data, batch_size, seq_length, learning_rate, nu
         y = torch.stack([data[i+1:i+seq_length+1] for i in ix])
         return x.to(model.token_embedding.weight.device), y.to(model.token_embedding.weight.device)
 
-    # Calculate model flops
-    N = model.dim
-    L = model.num_layers
-    S = seq_length
-    H = model.num_heads
-    Q = N // H
-    flops_per_iteration = 6*N*S*S + 12*N*N*S
+    def estimate_mfu(model, dt):
+        """ estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS """
+        # first estimate the number of flops we do per iteration.
+        # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
+        N = sum(p.numel() for p in model.parameters())
+        L, H, Q, T = model.num_layers, model.num_heads, model.dim // model.num_heads, model.seq_length
+        flops_per_token = 6*N + 12*L*H*Q*T
+        flops_per_fwdbwd = flops_per_token * T * batch_size  # multiply by batch size
+        flops_achieved = flops_per_fwdbwd * (1.0/dt) # per second
+        flops_promised = 312e12 # A100 GPU bfloat16 peak flops is 312 TFLOPS
+        mfu = flops_achieved / flops_promised
+        return mfu
 
     iter_num = 0
     best_val_loss = float('inf')
-    running_mfu = -1.0
     val_losses = []
 
     model.train()
+    t0 = time.time()
     for epoch in range(num_epochs):
         for _ in range(100):  # 100 batches per epoch
             iter_num += 1
-            t0 = time.time()
 
+            t_start = time.time()
+
+            # Data loading
             xb, yb = get_batch('train')
-            logits = model(xb)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), yb.view(-1))
+            t_data = time.time()
 
-            # Check for NaNs
-            if torch.isnan(loss):
-                print("NaN loss detected. Skipping this batch.")
+            # Forward pass
+            logits = model(xb)
+            t_forward = time.time()
+
+            # Loss computation
+            loss = model.compute_loss(logits, yb)
+            t_loss = time.time()
+
+            if torch.isnan(loss).any() or torch.isinf(loss).any():
+                print(f"Warning: NaN or Inf detected in loss at iteration {iter_num}")
+                print(f"Logits min: {logits.min()}, max: {logits.max()}")
+                print(f"Target min: {yb.min()}, max: {yb.max()}")
                 continue
 
+            # Backward pass
             optimizer.zero_grad()
             loss.backward()
+            t_backward = time.time()
+
+            # Optimizer step
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-
-            t1 = time.time()
-            dt = t1 - t0
-
-            lossf = loss.item()
-            mfu = flops_per_iteration * batch_size / (dt * 1e12)
-            running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
+            torch.cuda.synchronize()
+            t_optim = time.time()
 
             if iter_num % 10 == 0:
-                print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+                dt = t_optim - t_start
+                dt_data = t_data - t_start
+                dt_forward = t_forward - t_data
+                dt_loss = t_loss - t_forward
+                dt_backward = t_backward - t_loss
+                dt_optim = t_optim - t_backward
+                mfu = estimate_mfu(model, dt)
+                
+                print(f"iter {iter_num}: loss {loss.item():.4f}, time {dt*1000:.2f}ms, mfu {mfu*100:.2f}%")
+                # print(f"  Data loading: {dt_data*1000:.2f}ms")
+                # print(f"  Forward pass: {dt_forward*1000:.2f}ms")
+                # print(f"  Loss computation: {dt_loss*1000:.2f}ms")
+                # print(f"  Backward pass: {dt_backward*1000:.2f}ms")
+                # print(f"  Optimizer step: {dt_optim*1000:.2f}ms")
+                # print(f"  Other time: {(dt - dt_data - dt_forward - dt_loss - dt_backward - dt_optim)*1000:.2f}ms")
 
         scheduler.step()
 
@@ -352,10 +441,10 @@ def train(model, train_data, val_data, batch_size, seq_length, learning_rate, nu
         model.eval()
         val_loss = 0
         with torch.no_grad():
-            for _ in range(50):  # 50 validation batches
+            for _ in range(50):  # 50 val batches
                 xb, yb = get_batch('val')
                 logits = model(xb)
-                val_loss += F.cross_entropy(logits.view(-1, logits.size(-1)), yb.view(-1)).item()
+                val_loss += model.compute_loss(logits, yb).item()
         val_loss /= 50
         val_losses.append(val_loss)
         print(f"Epoch {epoch+1}/{num_epochs}, Validation Loss: {val_loss:.4f}")
@@ -368,7 +457,6 @@ def train(model, train_data, val_data, batch_size, seq_length, learning_rate, nu
         model.train()
 
     return model, val_losses
-
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -383,9 +471,8 @@ if __name__ == "__main__":
     dropout = 0.1
     batch_size = 64
     learning_rate = 3e-4
-    num_epochs = 100
+    num_epochs = 500
 
-    # Init model
     model = NanoGPT(
         vocab_size=vocab_size,
         dim=dim,
@@ -394,6 +481,13 @@ if __name__ == "__main__":
         seq_length=seq_length,
         dropout=dropout
     ).to(device)
+
+    model.config = type('Config', (), {
+        'n_layer': num_layers,
+        'n_head': num_heads,
+        'n_embd': dim,
+        'block_size': seq_length
+    })
 
     # Train config
     model, validation_losses = train(
@@ -406,10 +500,10 @@ if __name__ == "__main__":
         num_epochs=num_epochs
     )
 
-    # Load checkpoints
+    # Load checkpoint
     model.load_state_dict(torch.load('Checkpoints/nanoGPT_cpkt.pth', weights_only=True))
 
-    # Generate sample text
+    # Generate sample
     model.eval()
     start_text = "Once upon"
     input_ids = encode(start_text).unsqueeze(0).to(device)
